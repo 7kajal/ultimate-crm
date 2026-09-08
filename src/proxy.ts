@@ -40,6 +40,6 @@ export const config = {
   matcher: [
     // Everything except API routes (webhooks must stay public + unthrottled),
     // Next internals and static assets.
-    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt)$).*)",
+    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|css|js|json|map|woff2?|webmanifest)$).*)",
   ],
 }

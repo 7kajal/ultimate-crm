@@ -4,9 +4,12 @@ import { admin } from "better-auth/plugins"
 
 import { db } from "@/lib/db"
 import * as authSchema from "@/lib/db/schema/auth.schema"
+import { env } from "@/lib/env"
 
 export const auth = betterAuth({
-  baseURL: process.env.APP_URL ?? "http://localhost:3000",
+  baseURL: env.APP_URL,
+  trustHost: true,
+  trustedOrigins: [env.APP_URL],
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: authSchema,
