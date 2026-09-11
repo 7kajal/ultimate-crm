@@ -1,9 +1,15 @@
 import { z } from "zod"
 
+function resolveDefaultAppUrl(): string {
+  if (!process.env.VERCEL_URL) return "http://localhost:3000"
+  const vercelUrl = process.env.VERCEL_URL.replace(/^https?:\/\//, "")
+  return `https://${vercelUrl}`
+}
+
 const serverEnvSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   BETTER_AUTH_SECRET: z.string().min(16, "BETTER_AUTH_SECRET must be at least 16 chars"),
-  APP_URL: z.string().default("http://localhost:3000"),
+  APP_URL: z.string().default(resolveDefaultAppUrl()),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
