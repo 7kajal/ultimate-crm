@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
+import { getSessionCookie } from "better-auth/cookies"
 
-const SESSION_COOKIE = "better-auth.session_token"
 const PUBLIC_PATHS = ["/login", "/pay"]
 
 function applySecurityHeaders(res: NextResponse) {
@@ -13,7 +13,10 @@ function applySecurityHeaders(res: NextResponse) {
 export function proxy(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID()
   const { pathname, search } = request.nextUrl
-  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE))
+  // better-auth prefixes the session cookie with "__Secure-" on HTTPS, so a
+  // hardcoded name would treat authenticated users as logged out and bounce
+  // them between /login and the app forever. getSessionCookie handles both.
+  const hasSession = Boolean(getSessionCookie(request))
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 
   let response: NextResponse
