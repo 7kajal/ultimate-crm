@@ -1,10 +1,14 @@
 import { and, isNull, sql } from "drizzle-orm"
 import type { Metadata } from "next"
+import { InfoIcon } from "lucide-react"
 
 import { AssistantChat } from "@/components/ai/assistant-chat"
 import { InsightsView } from "@/components/ai/insights-view"
+import { WidgetRenderer } from "@/components/ai/widgets/widget-renderer"
 import { isAIConfigured } from "@/lib/ai/provider"
-import { listRecentInsights } from "@/lib/actions/ai"
+import { DEMO_SPEC } from "@/lib/ai/demo-spec"
+import { dashboardSpecSchema } from "@/lib/ai/widget-schema"
+import { getLatestDashboard, listRecentInsights } from "@/lib/actions/ai"
 import { db } from "@/lib/db"
 import { leads } from "@/lib/db/schema"
 import { requireUser, type Role } from "@/lib/rbac"
@@ -14,8 +18,9 @@ export const metadata: Metadata = { title: "AI" }
 export default async function AiPage() {
   const session = await requireUser()
   const role = session.user.role as Role
+  const configured = isAIConfigured()
 
-  const [insights, distribution] = await Promise.all([
+  const [insights, distribution, pinned] = await Promise.all([
     listRecentInsights(15),
     db
       .select({
@@ -31,6 +36,9 @@ export default async function AiPage() {
         and(isNull(leads.deletedAt), sql`${leads.stage}::text not in ('won','lost')`)
       )
       .groupBy(sql`1`),
+    getLatestDashboard(session.user.id).then((payload) =>
+      payload !== null ? dashboardSpecSchema.safeParse(payload) : null
+    ),
   ])
 
   const buckets = ["70–100", "40–69", "0–39", "unscored"]
@@ -49,13 +57,40 @@ export default async function AiPage() {
         </p>
       </div>
 
+      {configured && pinned?.success ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Your last AI board
+          </h2>
+          <div className="rounded-xl border bg-background/60 p-4">
+            <WidgetRenderer spec={pinned.data} />
+          </div>
+        </section>
+      ) : null}
+
+      {!configured ? (
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <InfoIcon className="size-4" />
+            <span>
+              AI is not connected yet — set <code>OPENAI_API_KEY</code> to go live.
+              Here is a demo of what the assistant renders for
+              “show me analytics for employees and leads for the last 15 days”.
+            </span>
+          </div>
+          <div className="rounded-xl border bg-background/60 p-4">
+            <WidgetRenderer spec={DEMO_SPEC} />
+          </div>
+        </section>
+      ) : null}
+
       <InsightsView
         insights={insights}
         scoreDistribution={scoreDistribution}
         canRun={role === "admin" || role === "manager"}
       />
 
-      <AssistantChat configured={isAIConfigured()} />
+      <AssistantChat configured={configured} />
     </div>
   )
 }

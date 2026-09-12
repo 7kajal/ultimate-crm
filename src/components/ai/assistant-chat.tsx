@@ -3,10 +3,13 @@
 import { ArrowUpIcon, SparklesIcon, SquareXIcon } from "lucide-react"
 import * as React from "react"
 
+import { WidgetRenderer } from "@/components/ai/widgets/widget-renderer"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { useChat } from "@ai-sdk/react"
+import { dashboardSpecSchema, type DashboardSpec } from "@/lib/ai/widget-schema"
 import { DefaultChatTransport, type UIMessage } from "ai"
 
 const SUGGESTIONS = [
@@ -14,6 +17,8 @@ const SUGGESTIONS = [
   "Which leads have gone stale?",
   "Draft a WhatsApp reply to Meera Joshi",
   "Create a task to send the revised proposal",
+  "Show me analytics for employees and leads for the last 15 days",
+  "What does my pipeline look like this month?",
 ]
 
 export function AssistantChat({ configured }: { configured: boolean }) {
@@ -73,19 +78,23 @@ export function AssistantChat({ configured }: { configured: boolean }) {
 
         <div className="flex flex-col gap-3">
           {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <Bubble
-                variant={m.role === "user" ? "default" : "muted"}
-                align={m.role === "user" ? "end" : "start"}
-                className="max-w-[85%]"
+            <div key={m.id} className="flex flex-col gap-2">
+              <div
+                className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <BubbleContent className="whitespace-pre-wrap">
-                  {messageText(m)}
-                </BubbleContent>
-              </Bubble>
+                <Bubble
+                  variant={m.role === "user" ? "default" : "muted"}
+                  align={m.role === "user" ? "end" : "start"}
+                  className="max-w-[85%]"
+                >
+                  <BubbleContent className="whitespace-pre-wrap">
+                    {messageText(m)}
+                  </BubbleContent>
+                </Bubble>
+              </div>
+              {widgetParts(m).map((part) => (
+                <WidgetPart key={part.toolCallId} part={part} />
+              ))}
             </div>
           ))}
         </div>
@@ -129,4 +138,44 @@ function messageText(m: UIMessage): string {
     .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
     .map((p) => p.text)
     .join("\n")
+}
+
+type RenderWidgetPart = {
+  toolCallId: string
+  state: string
+  input?: { spec?: DashboardSpec }
+}
+
+/** Tool parts for the visual board rendered by the assistant. */
+function widgetParts(m: UIMessage): RenderWidgetPart[] {
+  return m.parts.flatMap((p) =>
+    p.type === "tool-render_widget"
+      ? [(p as unknown) as RenderWidgetPart]
+      : []
+  )
+}
+
+/** Renders a rendered board once its spec has fully streamed. */
+function WidgetPart({ part }: { part: RenderWidgetPart }) {
+  const ready = part.state === "input-available" || part.state === "output-available"
+  const parsed = ready ? dashboardSpecSchema.safeParse(part.input?.spec) : undefined
+
+  if (ready && parsed?.success) {
+    return (
+      <div className="rounded-xl border bg-background/60 p-3">
+        <WidgetRenderer spec={parsed.data} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border bg-background/60 p-3">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <SparklesIcon className="size-3.5 animate-pulse" />
+        Drawing the analytics board…
+      </div>
+      <Skeleton className="h-24 w-full" />
+      <Skeleton className="h-24 w-full" />
+    </div>
+  )
 }

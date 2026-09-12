@@ -1,6 +1,6 @@
 "use server"
 
-import { desc } from "drizzle-orm"
+import { and, desc, eq } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 
 import { scoreLeads } from "@/lib/ai/scoring"
@@ -41,4 +41,20 @@ export async function listRecentInsights(limit = 20) {
     .from(aiInsights)
     .orderBy(desc(aiInsights.createdAt))
     .limit(limit)
+}
+
+/** Latest board the assistant pinned for this user (the "whiteboard"). */
+export async function getLatestDashboard(userId: string) {
+  const [row] = await db
+    .select({ payload: aiInsights.payload })
+    .from(aiInsights)
+    .where(
+      and(
+        eq(aiInsights.entityType, "dashboard"),
+        eq(aiInsights.entityId, userId)
+      )
+    )
+    .orderBy(desc(aiInsights.createdAt))
+    .limit(1)
+  return row?.payload ?? null
 }

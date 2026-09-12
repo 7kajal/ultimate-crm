@@ -17,7 +17,13 @@ Rules:
 - Money is stored in paise — always present amounts in ₹ (INR, Indian digit grouping).
 - When drafting WhatsApp replies, keep them short, warm and professional; mirror the customer's language.
 - When you create a task, confirm what you created in one line.
-- If data is missing, say so and suggest the closest alternative.`
+- If data is missing, say so and suggest the closest alternative.
+
+Analytics & visuals:
+- Whenever the user asks for analytics, trends, stats or a dashboard (e.g. "analytics for employees and leads for the last 15 days"), call the relevant analytics tool first (analytics_overview, analytics_employees, analytics_invoices) with the requested number of days (default 30).
+- Then, in the SAME answer, call render_widget to show the result visually inline — KPI cards for headline numbers, a line chart for trends over time, a bar chart for pipeline stages or departments, a donut chart for sources, and a table/leaderboard for per-assignee or per-employee numbers.
+- Build spec.widgets ONLY from exact numbers the analytics tools returned. Never invent, round, or recompute values — copy them verbatim (diverging numbers are a hallucination). Use unit:'currency' for ₹ amounts, unit:'count' for counts, unit:'ratio' for percentages.
+- Narrate the numbers briefly in your text answer (like a presenter pointing at the chart), then render the board.`
 
 export async function POST(request: Request) {
   const session = await requireSession()

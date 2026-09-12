@@ -9,7 +9,10 @@ import {
   type Lead,
   type LeadStage,
 } from "@/lib/db/schema"
-import type { Role, Session } from "@/lib/rbac"
+import { canManageAll, leadAccessCondition } from "@/lib/queries/scope"
+import type { Session } from "@/lib/rbac"
+
+export { canManageAll }
 
 export type LeadWithAssignee = Lead & {
   assigneeName: string | null
@@ -23,24 +26,12 @@ export type LeadFilters = {
   source?: string | "all"
 }
 
-/** Row-level scope: employees see only their own + unassigned leads. */
-function accessCondition(session: Session) {
-  const role = session.user.role as Role
-  if (role === "admin" || role === "manager") return undefined
-  return or(eq(leads.assignedTo, session.user.id), isNull(leads.assignedTo))
-}
-
-export function canManageAll(session: Session): boolean {
-  const role = session.user.role as Role
-  return role === "admin" || role === "manager"
-}
-
 export async function listLeads(
   session: Session,
   filters: LeadFilters = {}
 ): Promise<LeadWithAssignee[]> {
   const conditions = [isNull(leads.deletedAt)]
-  const access = accessCondition(session)
+  const access = leadAccessCondition(session)
   if (access) conditions.push(access)
 
   if (filters.search) {
@@ -86,7 +77,7 @@ export async function listLeads(
 }
 
 export async function getLeadDetail(session: Session, id: string) {
-  const access = accessCondition(session)
+  const access = leadAccessCondition(session)
   const [row] = await db
     .select({
       lead: leads,
@@ -130,7 +121,7 @@ export async function getLeadDetail(session: Session, id: string) {
 }
 
 export async function getPipelineStats(session: Session) {
-  const access = accessCondition(session)
+  const access = leadAccessCondition(session)
   const rows = await db
     .select({
       stage: leads.stage,

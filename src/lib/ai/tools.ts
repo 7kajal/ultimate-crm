@@ -2,17 +2,23 @@ import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { db } from "@/lib/db"
-import { leads, tasks, waContacts, waMessages } from "@/lib/db/schema"
-import type { Role, Session } from "@/lib/rbac"
+import { aiInsights, leads, tasks, waContacts, waMessages } from "@/lib/db/schema"
+import type { Session } from "@/lib/rbac"
 import { formatINR, timeAgo } from "@/lib/format"
 import { heuristicScore } from "@/lib/ai/scoring"
+import { analyticsEmployees, analyticsInvoices, analyticsOverview } from "@/lib/ai/analytics"
+import { dashboardSpecSchema } from "@/lib/ai/widget-schema"
+import { canManageAll, leadAccessCondition } from "@/lib/queries/scope"
 import { isWhatsAppConfigured } from "@/lib/whatsapp/cloud-api"
+import { childLogger } from "@/lib/logger"
 
-/** Row-level scope mirrors leads queries: employees see own + unassigned. */
-function leadScope(session: Session) {
-  const role = session.user.role as Role
-  if (role === "admin" || role === "manager") return undefined
-  return or(eq(leads.assignedTo, session.user.id), isNull(leads.assignedTo))
+const log = childLogger({ module: "ai-tools" })
+
+type ToolResult = Promise<Record<string, unknown>>
+
+/** Managers/admins see org-wide analytics; employees get their own leads. */
+function requireManageAll(session: Session): boolean {
+  return canManageAll(session)
 }
 
 /**
@@ -37,7 +43,7 @@ export function createAssistantTools(session: Session) {
         limit?: number
       }) => {
         const conditions = [isNull(leads.deletedAt)]
-        const scope = leadScope(session)
+        const scope = leadAccessCondition(session)
         if (scope) conditions.push(scope)
         if (stage) conditions.push(sql`${leads.stage}::text = ${stage}`)
         if (query) {
@@ -76,7 +82,7 @@ export function createAssistantTools(session: Session) {
         "Get pipeline statistics: lead counts and total value per stage, for the whole team (managers/admins) or the caller's own leads.",
       inputSchema: z.object({}),
       execute: async () => {
-        const scope = leadScope(session)
+        const scope = leadAccessCondition(session)
         const rows = await db
           .select({
             stage: leads.stage,
@@ -104,7 +110,7 @@ export function createAssistantTools(session: Session) {
       }),
       execute: async ({ days, limit }: { days?: number; limit?: number }) => {
         const cutoff = new Date(Date.now() - (days ?? 14) * 86_400_000)
-        const scope = leadScope(session)
+        const scope = leadAccessCondition(session)
         const rows = await db
           .select()
           .from(leads)
@@ -137,7 +143,7 @@ export function createAssistantTools(session: Session) {
         limit: z.number().int().min(1).max(20).default(8),
       }),
       execute: async ({ leadName, limit }: { leadName: string; limit?: number }) => {
-        const scope = leadScope(session)
+        const scope = leadAccessCondition(session)
         const [lead] = await db
           .select({ id: leads.id })
           .from(leads)
@@ -199,7 +205,7 @@ export function createAssistantTools(session: Session) {
       }) => {
         let leadId: string | null = null
         if (leadName) {
-          const scope = leadScope(session)
+          const scope = leadAccessCondition(session)
           const [lead] = await db
             .select({ id: leads.id })
             .from(leads)
@@ -233,6 +239,119 @@ export function createAssistantTools(session: Session) {
           dueAt: dueAt.toISOString().slice(0, 10),
           linkedLead: leadName ?? null,
         }
+      },
+    },
+
+    analytics_overview: {
+      description:
+        "Analytics snapshot for a rolling period (default 30 days): new/won/open leads, pipeline value, win rate, daily trend, pipeline by stage, leads by source, and a per-assignee leaderboard. Employees get their own leads; admins/managers get the whole team. Use the exact numbers it returns when building widgets.",
+      inputSchema: z.object({
+        days: z.number().int().min(1).max(365).default(30),
+      }),
+      execute: async ({ days }: { days?: number }): Promise<ToolResult> => {
+        const result = await analyticsOverview(session, days ?? 30)
+        return {
+          periodLabel: result.periodLabel,
+          summary: {
+            newLeads: result.summary.newLeads,
+            wonInPeriod: result.summary.wonInPeriod,
+            openLeads: result.summary.openLeads,
+            pipelineValue: formatINR(result.summary.pipelineValue),
+            winRate: `${result.summary.winRate}%`,
+            periodWinRate: `${result.summary.periodWinRate}%`,
+            avgDealValue: formatINR(result.summary.avgDealValue),
+            avgScore: result.summary.avgScore,
+            staleLeads: result.summary.staleLeads,
+            openTasks: result.summary.openTasks,
+          },
+          chart: {
+            trend: result.trend,
+            byStage: result.byStage,
+            bySource: result.bySource,
+            byAssignee: result.byAssignee,
+          },
+        }
+      },
+    },
+
+    analytics_employees: {
+      description:
+        "Employee and attendance analytics for a rolling period (admins and managers only): headcount by department and employment type, attendance rate, leave requests, and a per-employee leaderboard of leads/won/conversion/tasks. Returns a 'managers only' notice for other roles.",
+      inputSchema: z.object({
+        days: z.number().int().min(1).max(365).default(30),
+      }),
+      execute: async ({ days }: { days?: number }): Promise<ToolResult> => {
+        if (!requireManageAll(session)) {
+          return { notice: "Employee stats are available to managers and admins only." }
+        }
+        const result = await analyticsEmployees(session, days ?? 30)
+        return {
+          periodLabel: result.periodLabel,
+          summary: {
+            activeEmployees: result.summary.activeEmployees,
+            inactiveCount: result.summary.inactiveCount,
+            attendanceRate: `${result.summary.attendanceRate}%`,
+            presentRate: `${result.summary.presentRate}%`,
+            approvedLeaveRequests: result.summary.approvedLeaveRequests,
+            pendingLeaveRequests: result.summary.pendingLeaveRequests,
+          },
+          chart: {
+            byDepartment: result.byDepartment,
+            byType: result.byType,
+            perEmployee: result.perEmployee,
+          },
+        }
+      },
+    },
+
+    analytics_invoices: {
+      description:
+        "Billing analytics for a rolling period (admins and managers only): outstanding, overdue and collected revenue, invoices by status, and a daily collection timeline. Returns a 'managers only' notice for other roles.",
+      inputSchema: z.object({
+        days: z.number().int().min(1).max(365).default(30),
+      }),
+      execute: async ({ days }: { days?: number }): Promise<ToolResult> => {
+        if (!requireManageAll(session)) {
+          return { notice: "Revenue stats are available to managers and admins only." }
+        }
+        const result = await analyticsInvoices(session, days ?? 30)
+        return {
+          periodLabel: result.periodLabel,
+          summary: {
+            outstanding: formatINR(result.summary.outstanding),
+            overdue: formatINR(result.summary.overdue),
+            collectedInPeriod: formatINR(result.summary.collectedInPeriod),
+            invoices: result.summary.invoiced,
+          },
+          chart: {
+            byStatus: result.byStatus,
+            revenueTimeline: result.revenueTimeline,
+          },
+        }
+      },
+    },
+
+    render_widget: {
+      description:
+        "Render a visual dashboard (KPI cards, bar/line/donut charts, tables, leaderboards) inline in the chat, like a presenter drawing on a whiteboard. Call this whenever the user asks for analytics or summary visuals. Build `spec.widgets` only from exact numbers returned by the analytics tools — never invent or round values. Sets `unit: 'count'` for lead/task counts, `unit: 'currency'` for ₹ values, `unit: 'ratio'` for percentages.",
+      inputSchema: z.object({
+        spec: dashboardSpecSchema,
+      }),
+      execute: async ({ spec }: { spec: z.infer<typeof dashboardSpecSchema> }): Promise<ToolResult> => {
+        const [insight] = await db
+          .insert(aiInsights)
+          .values({
+            type: "summary",
+            entityType: "dashboard",
+            entityId: session.user.id,
+            title: spec.title ?? "AI analytics board",
+            body: spec.subtitle ?? spec.periodLabel ?? "",
+            payload: spec,
+            modelVersion: "dashboard-v1",
+          })
+          .returning({ id: aiInsights.id })
+        log.info({ userId: session.user.id, widgets: spec.widgets.length }, "dashboard rendered")
+        return { ok: true, insightId: insight?.id ?? null }
       },
     },
   }

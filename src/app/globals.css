@@ -137,3 +137,18 @@
     @apply font-sans;
   }
 }
+
+@keyframes widget-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-widget-pop {
+  animation: widget-pop 0.35s ease-out both;
+}
