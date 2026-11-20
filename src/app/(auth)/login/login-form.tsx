@@ -4,6 +4,7 @@ import { ArrowRightIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import * as React from "react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -23,12 +24,21 @@ import { InputGroup, InputGroupInput } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
 import { authClient } from "@/lib/auth-client"
 
+const DEMO_EMAIL = "admin@company.com"
+const DEMO_PASSWORD = "Admin@1234"
+
 export function LoginForm({ next }: { next?: string }) {
   const router = useRouter()
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [isPending, setIsPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+
+  function fillDemoCredentials() {
+    setEmail(DEMO_EMAIL)
+    setPassword(DEMO_PASSWORD)
+    setError(null)
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -130,6 +140,35 @@ export function LoginForm({ next }: { next?: string }) {
                 </Field>
               </FieldGroup>
             </form>
+
+            <div className="mt-6 rounded-lg border border-dashed bg-muted/40 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Demo account</p>
+                <Badge variant="secondary">Admin</Badge>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Use this login to explore every feature.
+              </p>
+              <dl className="mt-3 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Email</dt>
+                  <dd className="font-mono">{DEMO_EMAIL}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">Password</dt>
+                  <dd className="font-mono">{DEMO_PASSWORD}</dd>
+                </div>
+              </dl>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full"
+                onClick={fillDemoCredentials}
+              >
+                Fill demo credentials
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
